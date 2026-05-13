@@ -291,16 +291,6 @@ int x86_decode_instruction(const uint8_t *code, size_t code_size, uint64_t addre
     return 0;
 }
 
-static void print_objdump_line(const x86_decoded_instruction_t *instruction) {
-    char bytes[64];
-
-    x86_format_bytes(instruction, bytes, sizeof(bytes));
-    printf("0x%016llx:  %-28s %s\n",
-           (unsigned long long)instruction->address,
-           bytes,
-           instruction->text);
-}
-
 void x86_decode_text_section(const elf_file_t *elf, const char *binary_path, size_t instruction_limit) {
     const Elf64_Shdr *text_section;
     const uint8_t *code;
@@ -353,7 +343,9 @@ void x86_decode_text_section(const elf_file_t *elf, const char *binary_path, siz
     printf("[TEXT SECTION - objdump-style view]\n");
     printf("------------------------------------------------------------\n\n");
     for (offset = 0; offset < instruction_count; ++offset) {
-        print_objdump_line(&instructions[offset]);
+        char line[384];
+        x86_format_objdump_line(&instructions[offset], line, sizeof(line));
+        printf("%s\n", line);
     }
 
     printf("\n------------------------------------------------------------\n");

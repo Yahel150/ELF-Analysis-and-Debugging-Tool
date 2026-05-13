@@ -43,6 +43,8 @@ typedef struct x86_decoded_instruction {
 } x86_decoded_instruction_t;
 
 int x86_decode_instruction(const uint8_t *code, size_t code_size, uint64_t address, x86_decoded_instruction_t *out);
+void x86_format_bytes(const x86_decoded_instruction_t *instruction, char *buffer, size_t buffer_size);
+void x86_format_objdump_line(const x86_decoded_instruction_t *instruction, char *buffer, size_t buffer_size);
 void x86_print_instruction(const x86_decoded_instruction_t *instruction);
 void x86_decode_text_section(const elf_file_t *elf, const char *binary_path, size_t instruction_limit);
 

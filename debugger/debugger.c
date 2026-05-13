@@ -14,6 +14,7 @@
 #include "singlestep.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,9 +32,55 @@ static void xdbg_session_init(xdbg_session_t *session) {
     session->state = XDBG_SESSION_IDLE;
     session->layout = XDBG_LAYOUT_SPLIT;
     session->program_base = 0;
+    session->output_fd = -1;
     session->pending_signal = 0;
     xdbg_breakpoint_table_init(&session->breakpoints);
     snprintf(session->last_status, sizeof(session->last_status), "ready");
+}
+
+static void xdbg_append_program_output(xdbg_session_t *session, const char *data, size_t size) {
+    size_t used;
+
+    if (!session || !data || size == 0) return;
+    used = strlen(session->program_output);
+    if (size >= sizeof(session->program_output)) {
+        data += size - (sizeof(session->program_output) - 1);
+        size = sizeof(session->program_output) - 1;
+        used = 0;
+    } else if (used + size >= sizeof(session->program_output)) {
+        size_t keep = sizeof(session->program_output) - size - 1;
+        memmove(session->program_output, session->program_output + used - keep, keep);
+        used = keep;
+    }
+    memcpy(session->program_output + used, data, size);
+    session->program_output[used + size] = '\0';
+}
+
+static void xdbg_close_program_output(xdbg_session_t *session) {
+    if (!session || session->output_fd < 0) return;
+    close(session->output_fd);
+    session->output_fd = -1;
+}
+
+static void xdbg_drain_program_output(xdbg_session_t *session) {
+    char buffer[512];
+
+    if (!session || session->output_fd < 0) return;
+    while (1) {
+        ssize_t n = read(session->output_fd, buffer, sizeof(buffer));
+        if (n > 0) {
+            xdbg_append_program_output(session, buffer, (size_t)n);
+            if (!session->tui_enabled) {
+                fwrite(buffer, 1, (size_t)n, stdout);
+                fflush(stdout);
+            }
+            continue;
+        }
+        if (n == 0) {
+            xdbg_close_program_output(session);
+        }
+        break;
+    }
 }
 
 static void xdbg_close_loaded_elf(xdbg_session_t *session) {
@@ -57,6 +104,35 @@ static uint64_t xdbg_module_bias(const xdbg_session_t *session) {
         return session->program_base;
     }
     return 0;
+}
+
+static uint64_t xdbg_normalize_runtime_address(const xdbg_session_t *session, uint64_t address) {
+    uint64_t bias = xdbg_module_bias(session);
+    if (bias != 0 && address >= bias) return address - bias;
+    return address;
+}
+
+static int xdbg_runtime_address_in_section(const xdbg_session_t *session,
+                                           uint64_t address,
+                                           const char *section_name) {
+    const Elf64_Shdr *section;
+    uint64_t normalized;
+
+    if (!session || !session->has_elf || !section_name) return 0;
+    section = elf_find_section_by_name(&session->elf, section_name);
+    if (!section) return 0;
+    normalized = xdbg_normalize_runtime_address(session, address);
+    return normalized >= section->sh_addr && normalized < section->sh_addr + section->sh_size;
+}
+
+static int xdbg_runtime_address_in_user_text(const xdbg_session_t *session, uint64_t address) {
+    return xdbg_runtime_address_in_section(session, address, ".text");
+}
+
+static int xdbg_runtime_address_in_plt(const xdbg_session_t *session, uint64_t address) {
+    return xdbg_runtime_address_in_section(session, address, ".plt") ||
+           xdbg_runtime_address_in_section(session, address, ".plt.got") ||
+           xdbg_runtime_address_in_section(session, address, ".plt.sec");
 }
 
 static int xdbg_refresh_program_base(xdbg_session_t *session) {
@@ -156,6 +232,8 @@ static void xdbg_print_debugger_help(void) {
     printf("  nexti | ni                     Step over call-like instructions.\n");
     printf("  step | s                       Step to the next source line.\n");
     printf("  next | n                       Step source line, stepping over calls.\n");
+    printf("  skip | sk                      Continue out of PLT/lib/no-source code.\n");
+    printf("  finish | fin                   Run until the current function returns.\n");
     printf("  disassemble                    Decode instructions at RIP.\n");
     printf("  x[/fmt] <addr>                 Examine memory.\n");
     printf("  info regs|breakpoints          Show registers or breakpoints.\n");
@@ -193,6 +271,7 @@ static int xdbg_wait_for_stop(xdbg_session_t *session) {
         session->state = XDBG_SESSION_EXITED;
         session->stop_reason = XDBG_STOP_EXITED;
         session->exited = 1;
+        xdbg_drain_program_output(session);
         snprintf(session->last_status, sizeof(session->last_status),
                  "tracee exited with code %d", WEXITSTATUS(status));
         return 0;
@@ -201,6 +280,7 @@ static int xdbg_wait_for_stop(xdbg_session_t *session) {
         session->state = XDBG_SESSION_EXITED;
         session->stop_reason = XDBG_STOP_EXITED;
         session->exited = 1;
+        xdbg_drain_program_output(session);
         snprintf(session->last_status, sizeof(session->last_status),
                  "tracee terminated by signal %d", WTERMSIG(status));
         return 0;
@@ -257,6 +337,7 @@ static int xdbg_wait_for_stop(xdbg_session_t *session) {
 
         xdbg_fetch_instruction(session);
         xdbg_got_check_watches(session);
+        xdbg_drain_program_output(session);
         return 0;
     }
 
@@ -325,6 +406,87 @@ static int xdbg_next_instruction(xdbg_session_t *session) {
     if (!temp_bp) return -1;
     if (xdbg_breakpoint_install(session->pid, temp_bp) != 0) return -1;
     return xdbg_continue_execution(session);
+}
+
+static int xdbg_set_temp_breakpoint_and_continue(xdbg_session_t *session,
+                                                 uint64_t address,
+                                                 const char *label) {
+    xdbg_breakpoint_t *temp_bp;
+
+    if (!session || address == 0) return -1;
+    temp_bp = xdbg_breakpoint_add(&session->breakpoints,
+                                  address,
+                                  XDBG_BREAKPOINT_ADDRESS,
+                                  label ? label : "temp",
+                                  1);
+    if (!temp_bp) return -1;
+    if (xdbg_breakpoint_install(session->pid, temp_bp) != 0) return -1;
+    return xdbg_continue_execution(session);
+}
+
+static int xdbg_read_stack_return_address(xdbg_session_t *session, uint64_t *return_address) {
+    if (!session || !return_address || session->regs.rsp == 0) return -1;
+    return xdbg_read_process_memory(session->pid,
+                                    session->regs.rsp,
+                                    (uint8_t *)return_address,
+                                    sizeof(*return_address));
+}
+
+static int xdbg_read_frame_return_address(xdbg_session_t *session, uint64_t *return_address) {
+    if (!session || !return_address || session->regs.rbp <= session->regs.rsp) return -1;
+    return xdbg_read_process_memory(session->pid,
+                                    session->regs.rbp + sizeof(uint64_t),
+                                    (uint8_t *)return_address,
+                                    sizeof(*return_address));
+}
+
+static int xdbg_is_user_source_location(const xdbg_source_location_t *location) {
+    return location &&
+           location->has_source_file &&
+           location->line > 0 &&
+           location->function[0] != '\0' &&
+           strcmp(location->function, "??") != 0;
+}
+
+static int xdbg_finish_current_function(xdbg_session_t *session) {
+    uint64_t return_address = 0;
+
+    if (!session || session->pid <= 0 || session->state == XDBG_SESSION_EXITED) return -1;
+    if ((xdbg_read_frame_return_address(session, &return_address) != 0 || return_address == 0) &&
+        (xdbg_read_stack_return_address(session, &return_address) != 0 || return_address == 0)) {
+        snprintf(session->last_status, sizeof(session->last_status), "unable to read return address");
+        return -1;
+    }
+    return xdbg_set_temp_breakpoint_and_continue(session, return_address, "finish-temp");
+}
+
+static int xdbg_skip_to_user_code(xdbg_session_t *session) {
+    int guard = 128;
+
+    if (!session || session->pid <= 0 || session->state == XDBG_SESSION_EXITED) return -1;
+
+    while (guard-- > 0 && session->state != XDBG_SESSION_EXITED) {
+        uint64_t return_address = 0;
+
+        if (xdbg_is_user_source_location(&session->current_source) &&
+            !xdbg_runtime_address_in_plt(session, session->regs.rip)) {
+            snprintf(session->last_status, sizeof(session->last_status), "stopped in user code");
+            return 0;
+        }
+
+        if (xdbg_read_stack_return_address(session, &return_address) == 0 &&
+            xdbg_runtime_address_in_user_text(session, return_address)) {
+            if (xdbg_set_temp_breakpoint_and_continue(session, return_address, "skip-temp") != 0) {
+                return -1;
+            }
+        } else {
+            if (xdbg_single_step(session) != 0) return -1;
+        }
+    }
+
+    if (session->state == XDBG_SESSION_EXITED) return 0;
+    snprintf(session->last_status, sizeof(session->last_status), "skip stopped before finding source");
+    return -1;
 }
 
 static int xdbg_step_source_line(xdbg_session_t *session, int step_over_calls) {
@@ -497,12 +659,15 @@ static void xdbg_disassemble_around_pc(xdbg_session_t *session) {
     }
     while (offset < sizeof(bytes) && count < 6) {
         x86_decoded_instruction_t instruction;
+        char line[384];
+
         if (x86_decode_instruction(bytes + offset, sizeof(bytes) - offset,
                                    session->regs.rip + offset, &instruction) != 0 ||
             instruction.length == 0) {
             break;
         }
-        x86_print_instruction(&instruction);
+        x86_format_objdump_line(&instruction, line, sizeof(line));
+        printf("%s\n", line);
         offset += instruction.length;
         count += 1;
     }
@@ -574,15 +739,35 @@ static int xdbg_attach_to_pid(xdbg_session_t *session, int pid) {
 
 static int xdbg_launch_process(xdbg_session_t *session, const char *program, char **argv) {
     pid_t child;
+    int output_pipe[2];
+
+    if (pipe(output_pipe) != 0) return -1;
+    if (fcntl(output_pipe[0], F_SETFL, fcntl(output_pipe[0], F_GETFL, 0) | O_NONBLOCK) == -1) {
+        close(output_pipe[0]);
+        close(output_pipe[1]);
+        return -1;
+    }
 
     child = fork();
-    if (child == -1) return -1;
+    if (child == -1) {
+        close(output_pipe[0]);
+        close(output_pipe[1]);
+        return -1;
+    }
     if (child == 0) {
+        close(output_pipe[0]);
+        dup2(output_pipe[1], STDOUT_FILENO);
+        dup2(output_pipe[1], STDERR_FILENO);
+        close(output_pipe[1]);
         if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) _exit(1);
         execv(program, argv);
         _exit(1);
     }
 
+    close(output_pipe[1]);
+    xdbg_close_program_output(session);
+    session->output_fd = output_pipe[0];
+    session->program_output[0] = '\0';
     session->pid = child;
     session->attached = 0;
     session->exited = 0;
@@ -615,6 +800,7 @@ static int xdbg_launch_process(xdbg_session_t *session, const char *program, cha
 
 static void xdbg_detach_if_needed(xdbg_session_t *session) {
     if (!session || session->pid <= 0 || session->state == XDBG_SESSION_EXITED) return;
+    xdbg_close_program_output(session);
     if (session->attached) {
         ptrace(PTRACE_DETACH, session->pid, NULL, NULL);
     } else {
@@ -810,6 +996,12 @@ static int xdbg_handle_command(xdbg_session_t *session, char *line) {
     if (xdbg_command_is(command, "next", "n")) {
         return xdbg_step_source_line(session, 1);
     }
+    if (xdbg_command_is(command, "skip", "sk")) {
+        return xdbg_skip_to_user_code(session);
+    }
+    if (xdbg_command_is(command, "finish", "fin")) {
+        return xdbg_finish_current_function(session);
+    }
     if (strcmp(command, "disassemble") == 0) {
         xdbg_disassemble_around_pc(session);
         return 0;
@@ -964,6 +1156,7 @@ int xdbg_run_debugger(int argc, char **argv) {
 cleanup:
     xdbg_tui_shutdown();
     xdbg_detach_if_needed(&session);
+    xdbg_close_program_output(&session);
     xdbg_signals_uninstall();
     xdbg_close_loaded_elf(&session);
     return result;

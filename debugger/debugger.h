@@ -59,7 +59,9 @@ typedef struct xdbg_session {
     char program_path[260];
     char program_args_text[512];
     char last_status[256];
+    char program_output[2048];
     uint64_t program_base;
+    int output_fd;
     int pending_signal;
     elf_file_t elf;
     int has_elf;
