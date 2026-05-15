@@ -1,14 +1,14 @@
 # xdbg-ELF-Analysis-and-Debugging-Tool
 
-`xdbg` is a small Linux-focused ELF exploration and debugging tool written in C.
+`xdbg` is a Linux-focused ELF analysis and debugging tool written in C. It provides ELF inspection, x86-64 disassembly with explanations, local debugging, and remote debugging support.
 
 ## Features
 
 ### 1. ELF Inspector
 
-An ELF binary inspector that displays the ELF header, program header table, section header table, and symbol tables in a human-readable format, similar to the `readelf` command.
+Displays the ELF header, program header table, section header table, and symbol tables in a readable format, similar to `readelf`.
 
-It also includes security analysis features such as checks for vulnerable C functions, stack canary protection, buffer overflow risks, and more.
+It also reports common security properties such as stack canaries, NX, PIE, RELRO, and risky function usage.
 
 **Usage:**
 
@@ -18,7 +18,7 @@ It also includes security analysis features such as checks for vulnerable C func
 
 ### 2. x86-64 Instruction Decoder
 
-Provides detailed disassembly of the `.text` section and gives full binary translation explanations.
+Provides detailed disassembly of the `.text` section and gives full step-by-step instruction explanations.
 
 **Usage:**
 
@@ -54,6 +54,8 @@ We analyze this program, `hello.asm`, which is a simple AT&T x86 assembly progra
 
 <img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
 
+Command:
+
 <img width="864" height="19" alt="image" src="https://github.com/user-attachments/assets/a296f26b-e7d6-4306-823a-12edec17e85b" />
 
 ELF header:
@@ -78,10 +80,15 @@ Security report:
 
 
 ### 2. x86-64 Instruction Decoder
+We analyze the same program as before, hello.asm
 
-<img width="847" height="17" alt="image" src="https://github.com/user-attachments/assets/4418fa47-e910-4c72-8920-47e41006cfd1" />
+<img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
 
-dissassembly:
+Command:
+
+<img width="851" height="26" alt="image" src="https://github.com/user-attachments/assets/bb3f9999-619f-4b3e-8c68-45a62d6d65d1" />
+
+disassembly:
 
 <img width="561" height="172" alt="image" src="https://github.com/user-attachments/assets/6e191cf3-20f6-4f2b-9035-18cbade396b9" />
 
@@ -91,5 +98,14 @@ Explanation and breaking down each instruction:
 
 
 ### 3. Debugger
+We debug the same program as before, hello.asm
+
+<img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
+
+Debugger Video Demo:
+
+https://github.com/user-attachments/assets/85d8b03c-d74d-47e9-9e37-0fbfd08e55a7
+
+
 
 
