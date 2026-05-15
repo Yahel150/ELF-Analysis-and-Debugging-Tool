@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define XDBG_COMMAND_HISTORY_SIZE 16
+
 typedef enum xdbg_layout_mode {
     XDBG_LAYOUT_SRC = 0,
     XDBG_LAYOUT_ASM,
@@ -60,6 +62,9 @@ typedef struct xdbg_session {
     char program_args_text[512];
     char last_status[256];
     char program_output[2048];
+    char command_history[XDBG_COMMAND_HISTORY_SIZE][256];
+    size_t command_history_count;
+    size_t command_history_next;
     uint64_t program_base;
     int output_fd;
     int pending_signal;

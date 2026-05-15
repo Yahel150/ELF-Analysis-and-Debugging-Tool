@@ -21,6 +21,7 @@ int x86_opcode_uses_modrm(uint8_t opcode) {
         case 0x85:
         case 0x83:
         case 0x81:
+        case 0xC7:
             return 1;
         default:
             return 0;

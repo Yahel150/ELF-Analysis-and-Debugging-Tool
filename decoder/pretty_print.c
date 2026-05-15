@@ -76,6 +76,21 @@ void x86_format_bytes(const x86_decoded_instruction_t *instruction, char *buffer
     }
 }
 
+void x86_format_objdump_line(const x86_decoded_instruction_t *instruction, char *buffer, size_t buffer_size) {
+    char bytes[64];
+
+    if (!buffer || buffer_size == 0) return;
+    buffer[0] = '\0';
+    if (!instruction) return;
+
+    x86_format_bytes(instruction, bytes, sizeof(bytes));
+    snprintf(buffer, buffer_size,
+             "0x%016llx:  %-28s %s",
+             (unsigned long long)instruction->address,
+             bytes,
+             instruction->text);
+}
+
 void x86_format_memory_operand(char *buffer,
                                size_t buffer_size,
                                x86_modrm_fields_t modrm,

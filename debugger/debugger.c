@@ -20,6 +20,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/ptrace.h>
+#include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -30,7 +31,7 @@ static void xdbg_session_init(xdbg_session_t *session) {
     memset(session, 0, sizeof(*session));
     session->pid = -1;
     session->state = XDBG_SESSION_IDLE;
-    session->layout = XDBG_LAYOUT_SPLIT;
+    session->layout = XDBG_LAYOUT_ASM;
     session->program_base = 0;
     session->output_fd = -1;
     session->pending_signal = 0;
@@ -212,6 +213,80 @@ static void xdbg_print_prompt(const xdbg_session_t *session) {
         printf("xdbg> ");
         fflush(stdout);
     }
+}
+
+static void xdbg_trim_command(char *buffer) {
+    size_t len;
+
+    if (!buffer) return;
+    len = strlen(buffer);
+    while (len > 0 && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r' ||
+                       buffer[len - 1] == ' ' || buffer[len - 1] == '\t')) {
+        buffer[--len] = '\0';
+    }
+}
+
+static const char *xdbg_command_history_at(const xdbg_session_t *session, size_t index) {
+    size_t start;
+
+    if (!session || index >= session->command_history_count) return "";
+    start = (session->command_history_next + XDBG_COMMAND_HISTORY_SIZE - session->command_history_count) %
+            XDBG_COMMAND_HISTORY_SIZE;
+    return session->command_history[(start + index) % XDBG_COMMAND_HISTORY_SIZE];
+}
+
+static void xdbg_note_command_history(xdbg_session_t *session, const char *command_text) {
+    char trimmed[256];
+
+    if (!session || !command_text) return;
+    snprintf(trimmed, sizeof(trimmed), "%s", command_text);
+    xdbg_trim_command(trimmed);
+    if (trimmed[0] == '\0') return;
+
+    snprintf(session->command_history[session->command_history_next],
+             sizeof(session->command_history[session->command_history_next]),
+             "%s",
+             trimmed);
+    session->command_history_next = (session->command_history_next + 1) % XDBG_COMMAND_HISTORY_SIZE;
+    if (session->command_history_count < XDBG_COMMAND_HISTORY_SIZE) {
+        session->command_history_count += 1;
+    }
+}
+
+static void xdbg_redraw_prompt_input(const char *buffer) {
+    printf("\r\033[2Kxdbg> %s", buffer ? buffer : "");
+    fflush(stdout);
+}
+
+static int xdbg_prompt_load_history(xdbg_session_t *session,
+                                    size_t *history_cursor,
+                                    int direction,
+                                    char *buffer,
+                                    size_t buffer_size,
+                                    size_t *used) {
+    const char *entry;
+
+    if (!session || !history_cursor || !buffer || !used || session->command_history_count == 0) return 0;
+    if (direction < 0) {
+        if (*history_cursor > 0) *history_cursor -= 1;
+    } else {
+        if (*history_cursor + 1 < session->command_history_count) {
+            *history_cursor += 1;
+        } else {
+            *history_cursor = session->command_history_count;
+            buffer[0] = '\0';
+            *used = 0;
+            xdbg_redraw_prompt_input(buffer);
+            return 1;
+        }
+    }
+
+    entry = xdbg_command_history_at(session, *history_cursor);
+    snprintf(buffer, buffer_size, "%s", entry);
+    *used = strlen(buffer);
+    if (*used >= buffer_size) *used = buffer_size - 1;
+    xdbg_redraw_prompt_input(buffer);
+    return 1;
 }
 
 static int xdbg_command_is(const char *command, const char *long_name, const char *short_name) {
@@ -648,7 +723,7 @@ static int xdbg_resolve_break_spec(xdbg_session_t *session, const char *spec, ui
 }
 
 static void xdbg_disassemble_around_pc(xdbg_session_t *session) {
-    uint8_t bytes[96];
+    uint8_t bytes[256];
     size_t offset = 0;
     int count = 0;
 
@@ -657,7 +732,7 @@ static void xdbg_disassemble_around_pc(xdbg_session_t *session) {
         printf("unable to read memory for disassembly\n");
         return;
     }
-    while (offset < sizeof(bytes) && count < 6) {
+    while (offset < sizeof(bytes) && count < 15) {
         x86_decoded_instruction_t instruction;
         char line[384];
 
@@ -809,17 +884,90 @@ static void xdbg_detach_if_needed(xdbg_session_t *session) {
     }
 }
 
+static int xdbg_read_prompt_command(xdbg_session_t *session, char *buffer, size_t buffer_size) {
+    struct termios original;
+    struct termios raw;
+    size_t used = 0;
+    size_t history_cursor;
+
+    if (!buffer || buffer_size < 2) return -1;
+    buffer[0] = '\0';
+    if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &original) != 0) {
+        return fgets(buffer, (int)buffer_size, stdin) ? 0 : -1;
+    }
+
+    raw = original;
+    raw.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) {
+        return fgets(buffer, (int)buffer_size, stdin) ? 0 : -1;
+    }
+
+    history_cursor = session ? session->command_history_count : 0;
+    while (1) {
+        unsigned char ch;
+        ssize_t n = read(STDIN_FILENO, &ch, 1);
+        if (n <= 0) {
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+            return -1;
+        }
+
+        if (ch == '\n' || ch == '\r') {
+            buffer[used] = '\0';
+            write(STDOUT_FILENO, "\n", 1);
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+            return 0;
+        }
+        if (ch == 4 && used == 0) {
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+            return -1;
+        }
+        if (ch == 127 || ch == '\b') {
+            if (used > 0) {
+                used -= 1;
+                buffer[used] = '\0';
+                xdbg_redraw_prompt_input(buffer);
+            }
+            continue;
+        }
+        if (ch == 27) {
+            unsigned char seq[3] = {0, 0, 0};
+            if (read(STDIN_FILENO, &seq[0], 1) != 1) continue;
+            if (read(STDIN_FILENO, &seq[1], 1) != 1) continue;
+            if (seq[0] == '[' && seq[1] == 'A') {
+                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used);
+                continue;
+            }
+            if (seq[0] == '[' && seq[1] == 'B') {
+                xdbg_prompt_load_history(session, &history_cursor, 1, buffer, buffer_size, &used);
+                continue;
+            }
+            if (seq[0] == '[' && seq[1] == '5') {
+                read(STDIN_FILENO, &seq[2], 1);
+                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used);
+                continue;
+            }
+            continue;
+        }
+        if (ch >= 32 && ch <= 126 && used + 1 < buffer_size) {
+            buffer[used++] = (char)ch;
+            buffer[used] = '\0';
+            write(STDOUT_FILENO, &ch, 1);
+        }
+    }
+}
+
 static int xdbg_read_command_line(xdbg_session_t *session, char *buffer, size_t buffer_size) {
     if (session->tui_enabled) {
-        if (xdbg_tui_read_command(buffer, (unsigned long)buffer_size) == 0) {
+        if (xdbg_tui_read_command(session, buffer, (unsigned long)buffer_size) == 0) {
             return 0;
         }
         xdbg_note_status(session, "tui input unavailable, switched to prompt mode");
         session->tui_enabled = 0;
         xdbg_tui_shutdown();
     }
-    if (!fgets(buffer, (int)buffer_size, stdin)) return -1;
-    return 0;
+    return xdbg_read_prompt_command(session, buffer, buffer_size);
 }
 
 static int xdbg_handle_info_command(xdbg_session_t *session, const char *topic) {
@@ -1087,20 +1235,32 @@ static int xdbg_handle_command(xdbg_session_t *session, char *line) {
         return 0;
     }
 
-    printf("unknown command: %s\n", command);
+    if (session->tui_enabled) {
+        char status[256];
+        snprintf(status, sizeof(status), "unknown command: %s", command);
+        xdbg_note_status(session, status);
+    } else {
+        printf("unknown command: %s\n", command);
+    }
     return -1;
 }
 
 static int xdbg_repl(xdbg_session_t *session) {
     char line[512];
+    char original_line[512];
+    char previous_status[256];
 
     while (!session->should_quit) {
         if (session->tui_enabled) xdbg_tui_render(session);
         xdbg_print_prompt(session);
         if (xdbg_read_command_line(session, line, sizeof(line)) != 0) break;
-        xdbg_tui_note_command(line);
+        snprintf(original_line, sizeof(original_line), "%s", line);
+        xdbg_note_command_history(session, original_line);
+        snprintf(previous_status, sizeof(previous_status), "%s", session->last_status);
         if (xdbg_handle_command(session, line) != 0) {
-            xdbg_note_status(session, "command failed");
+            if (strcmp(previous_status, session->last_status) == 0) {
+                xdbg_note_status(session, "command failed");
+            }
         } else if (session->pid > 0 && session->state != XDBG_SESSION_EXITED) {
             xdbg_fetch_instruction(session);
         }

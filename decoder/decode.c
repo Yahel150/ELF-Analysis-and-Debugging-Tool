@@ -8,6 +8,11 @@ static int decode_two_byte_opcode(const uint8_t *code,
                                   uint64_t address,
                                   size_t *offset,
                                   x86_decoded_instruction_t *out) {
+    if (out->opcode2 == 0x05) {
+        snprintf(out->text, sizeof(out->text), "syscall");
+        return 0;
+    }
+
     if (out->opcode2 >= 0x80 && out->opcode2 <= 0x8F) {
         const char *mnemonic = x86_jcc_mnemonic(out->opcode2, 1);
         if (*offset + 4 > code_size) return -1;
@@ -50,7 +55,9 @@ static int decode_modrm_displacement(const uint8_t *code,
         out->displacement_size = 1;
         out->displacement = x86_read_displacement(code, *offset, 1);
         *offset += 1;
-    } else if (modrm.mod == 2 || (modrm.mod == 0 && modrm.rm == 5)) {
+    } else if (modrm.mod == 2 ||
+               (modrm.mod == 0 && modrm.rm == 5) ||
+               (modrm.mod == 0 && modrm.rm == 4 && out->has_sib && out->sib_base == 5)) {
         if (*offset + 4 > code_size) return -1;
         out->displacement_size = 4;
         out->displacement = x86_read_displacement(code, *offset, 4);
@@ -108,6 +115,41 @@ static int decode_modrm_opcode(const uint8_t *code,
     out->modrm = code[(*offset)++];
 
     if (decode_modrm_displacement(code, code_size, offset, out) != 0) return -1;
+
+    if (out->opcode == 0xC7) {
+        x86_modrm_fields_t modrm = x86_parse_modrm(out->modrm);
+        char operand[64];
+        int width64 = rex_w ? 1 : 0;
+        out->modrm_reg_full = (uint8_t)(modrm.reg | (rex_r << 3));
+        out->modrm_rm_full = (uint8_t)(modrm.rm | (rex_b << 3));
+        if (out->has_sib) {
+            out->sib_index_full = (uint8_t)(out->sib_index | (rex_x << 3));
+            out->sib_base_full = (uint8_t)(out->sib_base | (rex_b << 3));
+        }
+
+        if (modrm.reg != 0) {
+            snprintf(out->text, sizeof(out->text), "db 0xc7");
+            return 0;
+        }
+
+        if (*offset + 4 > code_size) return -1;
+        out->immediate_size = 4;
+        out->immediate = x86_read_immediate(code, *offset, 4);
+        *offset += 4;
+
+        if (modrm.mod == 3) {
+            snprintf(operand, sizeof(operand), "%%%s",
+                     x86_register_name(modrm.rm | (rex_b << 3), width64));
+        } else {
+            x86_format_memory_operand(operand, sizeof(operand), modrm, rex_b, rex_x,
+                                      out->displacement_size, out->displacement,
+                                      out->has_sib, out->sib);
+        }
+
+        snprintf(out->text, sizeof(out->text), "mov%c $0x%x, %s",
+                 width64 ? 'q' : 'l', (unsigned int)out->immediate, operand);
+        return 0;
+    }
 
     if (x86_opcode_is_group1_immediate(out->opcode)) {
         x86_modrm_fields_t modrm = x86_parse_modrm(out->modrm);
