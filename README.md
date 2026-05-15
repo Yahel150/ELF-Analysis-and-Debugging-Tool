@@ -1,6 +1,6 @@
-# xdbg-ELF-Analysis-and-Debugging-Tool
+# xdbg - ELF Analysis and Debugging Tool
 
-`xdbg` is a Linux-focused ELF analysis and debugging tool written in C. It provides ELF inspection, x86-64 disassembly with explanations, local debugging, and remote debugging support.
+`xdbg` is a Linux-focused ELF analysis and debugging tool written in C. It provides ELF inspection, x86-64 disassembly with instruction explanations, local debugging, and remote debugging support.
 
 ## Features
 
@@ -10,17 +10,17 @@ Displays the ELF header, program header table, section header table, and symbol 
 
 ### x86-64 Instruction Decoder
 
-Provides detailed disassembly of the `.text` section and gives full step-by-step instruction explanations.
+Provides detailed disassembly of the `.text` section with step-by-step instruction explanations.
 
 ### Debugger
 
-A debugger that supports breakpoints, single-stepping, register inspection, and memory reading and writing.
+A debugger supporting breakpoints, single-stepping, register inspection, and memory read/write operations.
 
 ### Remote Debugger
 
-Remote debugging support.
+Provides remote debugging support through separate worker and client processes.
 
-## Examples
+## Feature Demonstrations
 
 ### 1. ELF Inspector
 We analyze this program, `hello.asm`, which is a simple AT&T x86 assembly program that prints “Hello World” to the screen.
@@ -53,7 +53,7 @@ Security report:
 
 
 ### 2. x86-64 Instruction Decoder
-We analyze the same program as before, hello.asm
+The following example uses the same `hello.asm` program.
 
 <img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
 
@@ -61,11 +61,11 @@ Command:
 
 <img width="851" height="26" alt="image" src="https://github.com/user-attachments/assets/bb3f9999-619f-4b3e-8c68-45a62d6d65d1" />
 
-disassembly:
+Disassembly:
 
 <img width="561" height="172" alt="image" src="https://github.com/user-attachments/assets/6e191cf3-20f6-4f2b-9035-18cbade396b9" />
 
-Explanation and breaking down each instruction:
+Instruction explanations:
 
 <img width="650" height="446" alt="image" src="https://github.com/user-attachments/assets/b9da8cf0-5e65-4e0c-96b2-d482c881193b" />
 
@@ -75,7 +75,7 @@ We debug the same program as before hello.asm:
 
 <img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
 
-Debugger Video Demo:
+Debugger demonstration video:
 
 https://github.com/user-attachments/assets/85d8b03c-d74d-47e9-9e37-0fbfd08e55a7
 
@@ -106,7 +106,7 @@ To remove build files:
 make clean
 ```
 
-## Running the Application
+## Usage
 
 ### ELF Analysis
 
@@ -148,15 +148,15 @@ Connect using the remote client:
 
 ### Useful Debugger Commands
 
-```text
-disassemble
-info regs
-stepi
-nexti
-continue
-tui
-layout asm
-quit
-```
+| Command       | Description                     |
+|----------------|---------------------------------|
+| `disassemble` | Show disassembled instructions  |
+| `info regs`   | Display register values         |
+| `stepi`       | Execute one instruction         |
+| `nexti`       | Step over instruction           |
+| `continue`    | Continue execution              |
+| `tui`         | Enable terminal UI mode         |
+| `layout asm`  | Show assembly layout            |
+| `quit`        | Exit the debugger               |
 
 
