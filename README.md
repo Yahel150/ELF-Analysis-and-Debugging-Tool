@@ -77,3 +77,19 @@ Security report:
 <img width="257" height="215" alt="image" src="https://github.com/user-attachments/assets/7d3c0dab-2414-4943-9f0f-f34985878732" />
 
 
+### 2. x86-64 Instruction Decoder
+
+<img width="847" height="17" alt="image" src="https://github.com/user-attachments/assets/4418fa47-e910-4c72-8920-47e41006cfd1" />
+
+dissassembly:
+
+<img width="561" height="172" alt="image" src="https://github.com/user-attachments/assets/6e191cf3-20f6-4f2b-9035-18cbade396b9" />
+
+Explanation and breaking down each instruction:
+
+<img width="650" height="446" alt="image" src="https://github.com/user-attachments/assets/b9da8cf0-5e65-4e0c-96b2-d482c881193b" />
+
+
+### 3. Debugger
+
+
