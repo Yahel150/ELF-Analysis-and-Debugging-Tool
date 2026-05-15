@@ -44,11 +44,15 @@ static void print_symbol_table(const elf_file_t *elf,
         return;
     }
 
-    printf("  %s (showing up to %zu named entries)\n", title, limit);
+    if (limit == 0) {
+        printf("  %s (showing all named entries)\n", title);
+    } else {
+        printf("  %s (showing up to %zu named entries)\n", title, limit);
+    }
     printf("  %-4s %-28s %-8s %-8s %-18s %-10s %-6s\n",
            "Idx", "Name", "Bind", "Type", "Value", "Size", "Shndx");
 
-    for (index = 0; index < count && shown < limit; ++index) {
+    for (index = 0; index < count && (limit == 0 || shown < limit); ++index) {
         const Elf64_Sym *symbol = &symbols[index];
         const char *name = sym_name_from_table(elf, strings, symbol);
 
@@ -80,9 +84,9 @@ void elf_print_symbols(const elf_file_t *elf) {
         return;
     }
 
-    print_symbol_table(elf, ".symtab", elf->symtab, elf->sym_count, elf->sym_strtab, 24);
+    print_symbol_table(elf, ".symtab", elf->symtab, elf->sym_count, elf->sym_strtab, 0);
     printf("\n");
-    print_symbol_table(elf, ".dynsym", elf->dynsym, elf->dynsym_count, elf->dynstr, 24);
+    print_symbol_table(elf, ".dynsym", elf->dynsym, elf->dynsym_count, elf->dynstr, 0);
 
     plt = elf_find_section_by_name(elf, ".plt");
     gotplt = elf_find_section_by_name(elf, ".got.plt");

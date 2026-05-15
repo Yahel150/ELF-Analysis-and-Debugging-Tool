@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+int global_var = 42;
 
 static int helper(int x) {
     return x + 7;

@@ -439,14 +439,14 @@ void xdbg_tui_shutdown(void) {
 
 static void redraw_command_input(WINDOW *cmd_win,
                                  const char *buffer,
-                                 unsigned long used,
+                                 unsigned long cursor,
                                  int cols) {
     int input_width = cols - 9;
 
     if (input_width < 1) input_width = 1;
     mvwprintw(cmd_win, 1, 7, "%*s", input_width, "");
     mvwprintw(cmd_win, 1, 7, "%.*s", input_width, buffer ? buffer : "");
-    wmove(cmd_win, 1, 7 + (int)used);
+    wmove(cmd_win, 1, 7 + (int)cursor);
     wrefresh(cmd_win);
 }
 
@@ -454,6 +454,7 @@ int xdbg_tui_read_command(xdbg_session_t *session, char *buffer, unsigned long b
     int rows;
     int cols;
     unsigned long used = 0;
+    unsigned long cursor = 0;
     size_t history_cursor;
     WINDOW *cmd_win;
 
@@ -496,11 +497,27 @@ int xdbg_tui_read_command(xdbg_session_t *session, char *buffer, unsigned long b
             return -1;
         }
         if (ch == KEY_BACKSPACE || ch == 127 || ch == '\b') {
-            if (used > 0) {
+            if (cursor > 0) {
+                memmove(buffer + cursor - 1, buffer + cursor, used - cursor + 1);
+                cursor -= 1;
                 used -= 1;
                 buffer[used] = '\0';
-                mvwaddch(cmd_win, 1, 7 + (int)used, ' ');
-                wmove(cmd_win, 1, 7 + (int)used);
+                redraw_command_input(cmd_win, buffer, cursor, cols);
+            }
+            continue;
+        }
+        if (ch == KEY_LEFT) {
+            if (cursor > 0) {
+                cursor -= 1;
+                wmove(cmd_win, 1, 7 + (int)cursor);
+                wrefresh(cmd_win);
+            }
+            continue;
+        }
+        if (ch == KEY_RIGHT) {
+            if (cursor < used) {
+                cursor += 1;
+                wmove(cmd_win, 1, 7 + (int)cursor);
                 wrefresh(cmd_win);
             }
             continue;
@@ -512,7 +529,8 @@ int xdbg_tui_read_command(xdbg_session_t *session, char *buffer, unsigned long b
             snprintf(buffer, (size_t)buffer_size, "%s", entry);
             used = strlen(buffer);
             if (used >= buffer_size) used = buffer_size - 1;
-            redraw_command_input(cmd_win, buffer, used, cols);
+            cursor = used;
+            redraw_command_input(cmd_win, buffer, cursor, cols);
             continue;
         }
         if (ch == KEY_DOWN && session && session->command_history_count > 0) {
@@ -527,16 +545,19 @@ int xdbg_tui_read_command(xdbg_session_t *session, char *buffer, unsigned long b
             }
             used = strlen(buffer);
             if (used >= buffer_size) used = buffer_size - 1;
-            redraw_command_input(cmd_win, buffer, used, cols);
+            cursor = used;
+            redraw_command_input(cmd_win, buffer, cursor, cols);
             continue;
         }
         if (ch >= 32 && ch <= 126 && used + 1 < buffer_size) {
-            buffer[used++] = (char)ch;
+            memmove(buffer + cursor + 1, buffer + cursor, used - cursor + 1);
+            buffer[cursor] = (char)ch;
+            cursor += 1;
+            used += 1;
             buffer[used] = '\0';
-            waddch(cmd_win, ch);
-            wrefresh(cmd_win);
+            redraw_command_input(cmd_win, buffer, cursor, cols);
         }
-        if ((int)(7 + used) >= cols - 1) {
+        if ((int)(7 + cursor) >= cols - 1) {
             buffer[used] = '\0';
             break;
         }
