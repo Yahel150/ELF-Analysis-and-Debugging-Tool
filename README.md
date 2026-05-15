@@ -98,7 +98,7 @@ Explanation and breaking down each instruction:
 
 
 ### 3. Debugger
-We debug the same program as before, hello.asm
+We debug the same program as before hello.asm:
 
 <img width="224" height="218" alt="image" src="https://github.com/user-attachments/assets/235b3817-73b4-45e0-92dc-05423cb2617e" />
 
