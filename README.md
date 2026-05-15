@@ -80,53 +80,73 @@ Debugger Video Demo:
 https://github.com/user-attachments/assets/85d8b03c-d74d-47e9-9e37-0fbfd08e55a7
 
 
+## Build and Run
 
-## Build
+This project targets Linux on x86-64.
 
-This project targets Linux x86-64.
+### Installation
 
-Build the tool and demo target:
+Clone the repository and build the project:
 
 ```bash
+git clone https://github.com/Yahel150/ELF-Analysis-and-Debugging-Tool
+cd ELF-Analysis-and-Debugging-Tool
 make
 ```
 
-This creates:
+The executable will be created at:
 
 ```text
 build/bin/xdbg-elf
 ```
-To clean build output:
+
+To remove build files:
 
 ```bash
 make clean
 ```
+
+## Running the Application
+
+### ELF Analysis
+
 Analyze an ELF binary:
 
 ```bash
 ./build/bin/xdbg-elf analyze <elf-binary>
 ```
 
+### x86-64 Instruction Decoder
+
 Decode instructions from the `.text` section:
 
 ```bash
-./build/bin/xdbg-elf decode .[args...]
+./build/bin/xdbg-elf decode <elf-binary> [instruction-count]
 ```
 
-debugger:
+### Local Debugger
+
+Run the debugger on a program:
 
 ```bash
 ./build/bin/xdbg-elf debug [program] [args...]
 ```
 
-remote debugger:
+### Remote Debugger
+
+Start the remote worker:
 
 ```bash
- ./build/bin/xdbg-elf remote-worker <host:port> [program] [args...]
- ./build/bin/xdbg-elf remote-client <host:port>
+./build/bin/xdbg-elf remote-worker <host:port> [program] [args...]
 ```
 
-Useful debugger commands:
+Connect using the remote client:
+
+```bash
+./build/bin/xdbg-elf remote-client <host:port>
+```
+
+### Useful Debugger Commands
 
 ```text
 disassemble
@@ -138,7 +158,5 @@ tui
 layout asm
 quit
 ```
-
-
 
 
