@@ -4,50 +4,23 @@
 
 ## Features
 
-### 1. ELF Inspector
+### ELF Inspector
 
-Displays the ELF header, program header table, section header table, and symbol tables in a readable format, similar to `readelf`.
+Displays the ELF header, program header table, section header table, and symbol tables in a readable format, similar to `readelf`. It also reports common security properties such as stack canaries, NX, PIE, RELRO, and risky function usage.
 
-It also reports common security properties such as stack canaries, NX, PIE, RELRO, and risky function usage.
-
-**Usage:**
-
-```bash
-./build/bin/xdbg-elf analyze <elf-binary>
-```
-
-### 2. x86-64 Instruction Decoder
+### x86-64 Instruction Decoder
 
 Provides detailed disassembly of the `.text` section and gives full step-by-step instruction explanations.
 
-**Usage:**
-
-```bash
-./build/bin/xdbg-elf decode <elf-binary> [instruction-count]
-```
-
-### 3. Debugger
+### Debugger
 
 A debugger that supports breakpoints, single-stepping, register inspection, and memory reading and writing.
 
-**Usage:**
-
-```bash
-./build/bin/xdbg-elf debug [program] [args...]
-```
-
-### 4. Remote Debugger
+### Remote Debugger
 
 Remote debugging support.
 
-**Usage:** 
-
-```bash
- ./build/bin/xdbg-elf remote-worker <host:port> [program] [args...]
- ./build/bin/xdbg-elf remote-client <host:port>
-```
-
-## Examples of Use
+## Examples
 
 ### 1. ELF Inspector
 We analyze this program, `hello.asm`, which is a simple AT&T x86 assembly program that prints “Hello World” to the screen.
@@ -105,6 +78,66 @@ We debug the same program as before hello.asm:
 Debugger Video Demo:
 
 https://github.com/user-attachments/assets/85d8b03c-d74d-47e9-9e37-0fbfd08e55a7
+
+
+
+## Build
+
+This project targets Linux x86-64.
+
+Build the tool and demo target:
+
+```bash
+make
+```
+
+This creates:
+
+```text
+build/bin/xdbg-elf
+```
+To clean build output:
+
+```bash
+make clean
+```
+Analyze an ELF binary:
+
+```bash
+./build/bin/xdbg-elf analyze <elf-binary>
+```
+
+Decode instructions from the `.text` section:
+
+```bash
+./build/bin/xdbg-elf decode .[args...]
+```
+
+debugger:
+
+```bash
+./build/bin/xdbg-elf debug [program] [args...]
+```
+
+remote debugger:
+
+```bash
+ ./build/bin/xdbg-elf remote-worker <host:port> [program] [args...]
+ ./build/bin/xdbg-elf remote-client <host:port>
+```
+
+Useful debugger commands:
+
+```text
+disassemble
+info regs
+stepi
+nexti
+continue
+tui
+layout asm
+quit
+```
 
 
 
