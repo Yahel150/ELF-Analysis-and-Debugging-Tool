@@ -253,8 +253,9 @@ static void xdbg_note_command_history(xdbg_session_t *session, const char *comma
     }
 }
 
-static void xdbg_redraw_prompt_input(const char *buffer) {
+static void xdbg_redraw_prompt_input(const char *buffer, size_t cursor) {
     printf("\r\033[2Kxdbg> %s", buffer ? buffer : "");
+    printf("\r\033[%zuC", cursor + 6);
     fflush(stdout);
 }
 
@@ -263,10 +264,12 @@ static int xdbg_prompt_load_history(xdbg_session_t *session,
                                     int direction,
                                     char *buffer,
                                     size_t buffer_size,
-                                    size_t *used) {
+                                    size_t *used,
+                                    size_t *cursor) {
     const char *entry;
 
-    if (!session || !history_cursor || !buffer || !used || session->command_history_count == 0) return 0;
+    if (!session || !history_cursor || !buffer || !used || !cursor ||
+        session->command_history_count == 0) return 0;
     if (direction < 0) {
         if (*history_cursor > 0) *history_cursor -= 1;
     } else {
@@ -276,7 +279,8 @@ static int xdbg_prompt_load_history(xdbg_session_t *session,
             *history_cursor = session->command_history_count;
             buffer[0] = '\0';
             *used = 0;
-            xdbg_redraw_prompt_input(buffer);
+            *cursor = 0;
+            xdbg_redraw_prompt_input(buffer, *cursor);
             return 1;
         }
     }
@@ -285,7 +289,8 @@ static int xdbg_prompt_load_history(xdbg_session_t *session,
     snprintf(buffer, buffer_size, "%s", entry);
     *used = strlen(buffer);
     if (*used >= buffer_size) *used = buffer_size - 1;
-    xdbg_redraw_prompt_input(buffer);
+    *cursor = *used;
+    xdbg_redraw_prompt_input(buffer, *cursor);
     return 1;
 }
 
@@ -888,6 +893,7 @@ static int xdbg_read_prompt_command(xdbg_session_t *session, char *buffer, size_
     struct termios original;
     struct termios raw;
     size_t used = 0;
+    size_t cursor = 0;
     size_t history_cursor;
 
     if (!buffer || buffer_size < 2) return -1;
@@ -924,10 +930,12 @@ static int xdbg_read_prompt_command(xdbg_session_t *session, char *buffer, size_
             return -1;
         }
         if (ch == 127 || ch == '\b') {
-            if (used > 0) {
+            if (cursor > 0) {
+                memmove(buffer + cursor - 1, buffer + cursor, used - cursor + 1);
+                cursor -= 1;
                 used -= 1;
                 buffer[used] = '\0';
-                xdbg_redraw_prompt_input(buffer);
+                xdbg_redraw_prompt_input(buffer, cursor);
             }
             continue;
         }
@@ -936,24 +944,41 @@ static int xdbg_read_prompt_command(xdbg_session_t *session, char *buffer, size_
             if (read(STDIN_FILENO, &seq[0], 1) != 1) continue;
             if (read(STDIN_FILENO, &seq[1], 1) != 1) continue;
             if (seq[0] == '[' && seq[1] == 'A') {
-                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used);
+                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used, &cursor);
                 continue;
             }
             if (seq[0] == '[' && seq[1] == 'B') {
-                xdbg_prompt_load_history(session, &history_cursor, 1, buffer, buffer_size, &used);
+                xdbg_prompt_load_history(session, &history_cursor, 1, buffer, buffer_size, &used, &cursor);
+                continue;
+            }
+            if (seq[0] == '[' && seq[1] == 'C') {
+                if (cursor < used) {
+                    cursor += 1;
+                    xdbg_redraw_prompt_input(buffer, cursor);
+                }
+                continue;
+            }
+            if (seq[0] == '[' && seq[1] == 'D') {
+                if (cursor > 0) {
+                    cursor -= 1;
+                    xdbg_redraw_prompt_input(buffer, cursor);
+                }
                 continue;
             }
             if (seq[0] == '[' && seq[1] == '5') {
                 read(STDIN_FILENO, &seq[2], 1);
-                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used);
+                xdbg_prompt_load_history(session, &history_cursor, -1, buffer, buffer_size, &used, &cursor);
                 continue;
             }
             continue;
         }
         if (ch >= 32 && ch <= 126 && used + 1 < buffer_size) {
-            buffer[used++] = (char)ch;
+            memmove(buffer + cursor + 1, buffer + cursor, used - cursor + 1);
+            buffer[cursor] = (char)ch;
+            cursor += 1;
+            used += 1;
             buffer[used] = '\0';
-            write(STDOUT_FILENO, &ch, 1);
+            xdbg_redraw_prompt_input(buffer, cursor);
         }
     }
 }
